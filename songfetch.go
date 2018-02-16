@@ -3,134 +3,104 @@ package main
 import (
 	"net/http"
 	"crypto/tls"
-	"log"
-	"os"
-	"runtime"
-	"strings"
 	"encoding/json"
-	"fmt"
-	"os/exec"
-	"net/url"
+	"log"
+	"sync"
+	"strings"
+	"os"
 	"regexp"
+	"fmt"
+	"net/url"
+	"os/exec"
 )
 
-var logDebug, logError *log.Logger
-
-// setupLogs sets debug and error logs
-func setupLogs() {
-	logDebug = log.New(os.Stderr, "DEBUG ", log.Ldate|log.Ltime)
-	logError = log.New(os.Stderr, "ERROR ", log.Ldate|log.Ltime)
+type OCRSpaceResponse struct {
+	ParsedResults []struct {
+		ParsedText string `json:"ParsedText"`
+	} `json:"ParsedResults"`
 }
 
-// getTextFromImage uses OCRSpace API to get text from given image.
-// It removes special chars from retrieved data and returns string slice of hopefully proper songs :)
-func getTextFromImage(imageURL string) []string {
-	pc, _, _, _ := runtime.Caller(0)
-	funcName := strings.Split(runtime.FuncForPC(pc).Name(), ".")[1]
-	logDebug.Printf("%v | Enter -- url [%v]", funcName, imageURL)
-	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+type YtResponse struct {
+	Items []struct {
+		ID struct {
+			VideoID string `json:"videoId"`
+		} `json:"id"`
+	} `json:"items"`
+}
 
-	// compile regex to clean special characters from song (ease up work for youtube/v3 api :)
-	reg, err := regexp.Compile("[^a-zA-Z ]+")
+var client = &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+var wg sync.WaitGroup
+
+// UPDATE ME XD
+func getSongsFromImage(img string) {
+	var ocrSpaceResp OCRSpaceResponse
+	defer log.Println("all done \\o/")
+	defer wg.Wait()
+
+	req, err := http.NewRequest("GET", img, nil)
 	if err != nil {
-		logError.Printf("%v | regexp.Compile FAIL [%v]", funcName, err)
-	}
-
-	type OCRSpaceResponse struct {
-		ParsedResults []struct {
-			ParsedText string `json:"ParsedText"`
-		} `json:"ParsedResults"`
-	}
-	var resp OCRSpaceResponse
-
-	req, err := http.NewRequest("GET", imageURL, nil)
-	if err != nil {
-		logError.Printf("%v | http.NewRequest FAIL [%v]", funcName, err)
+		log.Printf("http.NewRequest FAIL [%v]", err)
 	}
 	if response, err := client.Do(req); err == nil {
 		if response.Body != nil {
-			if err := json.NewDecoder(response.Body).Decode(&resp); err != nil {
-				logError.Printf("%v | json.NewDecoder FAIL [%v]", funcName, err)
+			if err := json.NewDecoder(response.Body).Decode(&ocrSpaceResp); err != nil {
+				log.Printf("json.NewDecoder FAIL [%v]", err)
 			}
 			response.Body.Close()
 		}
 	} else {
-		logError.Printf("%v | client.Do FAIL [%v]", funcName, err)
+		log.Printf("client.Do FAIL [%v]", err)
 	}
 
-	var songs []string
-	for _, val := range strings.Split(fmt.Sprintf("%v", resp.ParsedResults), "\n") {
-		if strings.Contains(val, "-") {
-			songs = append(songs, reg.ReplaceAllString(val, ""))
+	log.Println("started")
+	songs := strings.Split(ocrSpaceResp.ParsedResults[0].ParsedText, "\n")
+	for _, song := range songs {
+		if strings.Contains(song, "-") {
+			wg.Add(1)
+			go fetchSong(song)
 		}
 	}
-	logDebug.Printf("%v | Return -- songs [%v ... ]", funcName, songs[0][:20])
-	return songs
 }
 
-// getYouTubeLink uses YouTube Data API to get IDs of videos from given songs.
-// It doesn't handle missing data from API response, cause, yeah, happy path all the way :)
-// It returns string slice of most prominent IDs
-func getYouTubeLinks(songs []string) []string {
-	pc, _, _, _ := runtime.Caller(0)
-	funcName := strings.Split(runtime.FuncForPC(pc).Name(), ".")[1]
-	logDebug.Printf("%v | Enter -- songs [%v ... ]", funcName, songs[0][:20])
-	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+// UPDATE ME XD
+func fetchSong(song string) {
+	var ytResp YtResponse
+	defer log.Println("finished - " + strings.ToLower(song))
+	defer wg.Done()
 
-	type YouTubeResponse struct {
-		Items []struct {
-			ID struct {
-				VideoID string `json:"videoId"`
-			} `json:"id"`
-		} `json:"items"`
-	}
-	var resp YouTubeResponse
-
-	var ids []string
-	for _, song := range songs {
-		var youTubeAPIURL = fmt.Sprintf("https://www.googleapis.com/youtube/v3/search?q=%v&maxResults=1&part=snippet&key=AIzaSyCURl1CVR_-gL227h5S8GIhtGXU7kMIFvc", url.QueryEscape(song))
-		logDebug.Printf("%v | url [%v]", funcName, youTubeAPIURL)
-
-			req, err := http.NewRequest("GET", youTubeAPIURL, nil)
-			if err != nil {
-				logError.Printf("%v | http.NewRequest FAIL [%v]", funcName, err)
-			}
-			if response, err := client.Do(req); err == nil {
-				if response.Body != nil {
-					if err := json.NewDecoder(response.Body).Decode(&resp); err != nil {
-						logError.Printf("%v | json.NewDecoder FAIL [%v]", funcName, err)
-					}
-					response.Body.Close()
-				}
-			} else {
-				logError.Printf("%v | client.Do FAIL [%v]", funcName, err)
-			}
-			ids = append(ids, fmt.Sprintf("%v", resp.Items[0].ID.VideoID))
+	// compile regex to clean special characters from song (ease up work for youtube/v3 api :)
+	reg, err := regexp.Compile("[^a-zA-Z ]+")
+	if err != nil {
+		log.Printf("regexp.Compile FAIL [%v]", err)
 	}
 
-	logDebug.Printf("%v | Return -- ids [%v ...]", funcName, ids)
-	return ids
-}
-
-// fetchSong uses local youtube-dl app to download video and extract audio from given IDs
-func fetchSong(ids []string) {
-	pc, _, _, _ := runtime.Caller(0)
-	funcName := strings.Split(runtime.FuncForPC(pc).Name(), ".")[1]
-	logDebug.Printf("%v | Enter -- ids [%v]", funcName, ids)
-
-	for _, id := range ids {
-		var youTubeVideoURL= fmt.Sprintf("https://www.youtube.com/watch?v=%v", id)
-		logDebug.Printf("%v | url [%v]", funcName, youTubeVideoURL)
-		if _, err := exec.Command("youtube-dl", "-x", "--audio-format", "mp3", youTubeVideoURL).CombinedOutput(); err != nil {
-			logError.Printf("%v | exec.Command FAIL [%v]", funcName, err)
+	req, err := http.NewRequest("GET", fmt.Sprintf("https://www.googleapis.com/youtube/v3/search?q=%v&maxResults=1&part=snippet&key=AIzaSyCURl1CVR_-gL227h5S8GIhtGXU7kMIFvc", url.QueryEscape(reg.ReplaceAllString(song, ""))), nil)
+	if err != nil {
+		log.Printf("http.NewRequest FAIL [%v]", err)
+	}
+	if response, err := client.Do(req); err == nil {
+		if response.Body != nil {
+			if err := json.NewDecoder(response.Body).Decode(&ytResp); err != nil {
+				log.Printf("json.NewDecoder FAIL [%v]", err)
+			}
+			response.Body.Close()
+		}
+	} else {
+		log.Printf("client.Do FAIL [%v]", err)
+	}
+	id := ytResp.Items[0].ID.VideoID
+	if id != "" {
+		cmd := exec.Command("youtube-dl", "-x", "--audio-format", "mp3", fmt.Sprintf("https://www.youtube.com/watch?v=%v", id))
+		cmd.Dir = "./temp"
+		if _, err := cmd.CombinedOutput(); err != nil {
+			log.Printf("exec.Command FAIL [%v]", err)
 		}
 	}
 }
 
 func main() {
-	setupLogs()
-	imageURL := "https://api.ocr.space/parse/imageurl?apikey=e36149dd0488957&url=https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg"
-	songs := getTextFromImage(imageURL)
-	ids := getYouTubeLinks(songs)
-	fetchSong(ids)
+	os.Mkdir("./temp", 0777)
+	//imageURL := "https://api.ocr.space/parse/imageurl?apikey=e36149dd0488957&url=https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg"
+	imageURL := "http://localhost:8000/output.json"
+	getSongsFromImage(imageURL)
 }
