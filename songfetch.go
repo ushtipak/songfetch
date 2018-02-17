@@ -3,22 +3,27 @@ package main
 import (
 	"net/http"
 	"crypto/tls"
-	"encoding/json"
 	"log"
 	"sync"
 	"strings"
-	"os"
 	"regexp"
 	"fmt"
 	"net/url"
+	"flag"
+	"time"
+	"github.com/otiai10/gosseract"
+	"os"
+	"encoding/json"
 	"os/exec"
 )
 
-type OCRSpaceResponse struct {
-	ParsedResults []struct {
-		ParsedText string `json:"ParsedText"`
-	} `json:"ParsedResults"`
-}
+var (
+	delimiter = flag.String("delimiter", "-", "char that separates artist / song")
+	img       = flag.String("image", "https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg", "playlist image url")
+	outputDir = ""
+	reg, _    = regexp.Compile("[^a-zA-Z ]+")
+	ytResp    = YtResponse{}
+)
 
 type YtResponse struct {
 	Items []struct {
@@ -31,31 +36,31 @@ type YtResponse struct {
 var client = &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
 var wg sync.WaitGroup
 
+func checkError(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 // UPDATE ME XD
 func getSongsFromImage(img string) {
-	var ocrSpaceResp OCRSpaceResponse
 	defer log.Println("all done \\o/")
 	defer wg.Wait()
 
-	req, err := http.NewRequest("GET", img, nil)
-	if err != nil {
-		log.Printf("http.NewRequest FAIL [%v]", err)
-	}
-	if response, err := client.Do(req); err == nil {
-		if response.Body != nil {
-			if err := json.NewDecoder(response.Body).Decode(&ocrSpaceResp); err != nil {
-				log.Printf("json.NewDecoder FAIL [%v]", err)
-			}
-			response.Body.Close()
-		}
-	} else {
-		log.Printf("client.Do FAIL [%v]", err)
-	}
+	client := gosseract.NewClient()
+	defer client.Close()
+	client.SetImage("./test.png")
+	text, err := client.Text()
+	checkError(err)
 
-	log.Println("started")
-	songs := strings.Split(ocrSpaceResp.ParsedResults[0].ParsedText, "\n")
+	err = os.Mkdir(outputDir, 0777)
+	checkError(err)
+
+	songs := strings.Split(text, "\n")
 	for _, song := range songs {
-		if strings.Contains(song, "-") {
+		log.Printf("=> [%v]", song)
+		if strings.Contains(song, *delimiter) {
+			log.Printf("=> [%v] : YES", song)
 			wg.Add(1)
 			go fetchSong(song)
 		}
@@ -64,15 +69,8 @@ func getSongsFromImage(img string) {
 
 // UPDATE ME XD
 func fetchSong(song string) {
-	var ytResp YtResponse
-	defer log.Println("finished - " + strings.ToLower(song))
+	defer log.Println(strings.ToLower(song))
 	defer wg.Done()
-
-	// compile regex to clean special characters from song (ease up work for youtube/v3 api :)
-	reg, err := regexp.Compile("[^a-zA-Z ]+")
-	if err != nil {
-		log.Printf("regexp.Compile FAIL [%v]", err)
-	}
 
 	req, err := http.NewRequest("GET", fmt.Sprintf("https://www.googleapis.com/youtube/v3/search?q=%v&maxResults=1&part=snippet&key=AIzaSyCURl1CVR_-gL227h5S8GIhtGXU7kMIFvc", url.QueryEscape(reg.ReplaceAllString(song, ""))), nil)
 	if err != nil {
@@ -91,7 +89,7 @@ func fetchSong(song string) {
 	id := ytResp.Items[0].ID.VideoID
 	if id != "" {
 		cmd := exec.Command("youtube-dl", "-x", "--audio-format", "mp3", fmt.Sprintf("https://www.youtube.com/watch?v=%v", id))
-		cmd.Dir = "./temp"
+		cmd.Dir = outputDir
 		if _, err := cmd.CombinedOutput(); err != nil {
 			log.Printf("exec.Command FAIL [%v]", err)
 		}
@@ -99,8 +97,7 @@ func fetchSong(song string) {
 }
 
 func main() {
-	os.Mkdir("./temp", 0777)
-	//imageURL := "https://api.ocr.space/parse/imageurl?apikey=e36149dd0488957&url=https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg"
-	imageURL := "http://localhost:8000/output.json"
-	getSongsFromImage(imageURL)
+	flag.Parse()
+	outputDir = "songfetch" + time.Now().Format("--2006-01-02--15-04-05--") + strings.ToLower(reg.ReplaceAllString(*img, "-"))
+	getSongsFromImage(*img)
 }
