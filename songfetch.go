@@ -14,8 +14,8 @@ import (
 	"github.com/otiai10/gosseract"
 	"os"
 	"encoding/json"
-	"os/exec"
 	"io"
+	"os/exec"
 )
 
 var (
@@ -109,11 +109,13 @@ func fetchSong(song, outputDir string) {
 		}
 	}
 
-	id := ytResp.Items[0].ID.VideoID
-	if id != "" {
-		cmd := exec.Command("youtube-dl", "-x", "--audio-format", "mp3", fmt.Sprintf("https://www.youtube.com/watch?v=%v", id))
-		cmd.Dir = outputDir
-		cmd.CombinedOutput()
+	if len(ytResp.Items) > 0 {
+		id := ytResp.Items[0].ID.VideoID
+		if id != "" {
+			cmd := exec.Command("youtube-dl", "-x", "--audio-format", "mp3", fmt.Sprintf("https://www.youtube.com/watch?v=%v", id))
+			cmd.Dir = outputDir
+			cmd.CombinedOutput()
+		}
 	}
 }
 
