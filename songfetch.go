@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"crypto/tls"
 	"log"
 	"sync"
 	"strings"
@@ -20,10 +19,11 @@ import (
 
 var (
 	delimiter      = flag.String("delimiter", "-", "char that separates artist / song")
-	img            = flag.String("image", "https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg", "playlist image url")
 	discardStrings = flag.String("discard-str", "", "comma separated list of chars to discard during ocr")
+	img            = flag.String("image", "https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg", "playlist image url")
 	outputDir      = ""
 	reg, _         = regexp.Compile("[^a-zA-Z ]+")
+	wg             = sync.WaitGroup{}
 	ytResp         = YtResponse{}
 )
 
@@ -34,9 +34,6 @@ type YtResponse struct {
 		} `json:"id"`
 	} `json:"items"`
 }
-
-var client = &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-var wg sync.WaitGroup
 
 // verifyStep checks for errors in execution, updates output accordingly and exists if needed
 func verifyStep(err error) {
@@ -54,7 +51,7 @@ func prepareForFetch(img string) string {
 	outputDir = "songfetch" + time.Now().Format("--2006-01-02--15-04-05--") + strings.ToLower(reg.ReplaceAllString(img, "-"))
 
 	fmt.Print("> create output dir ... ")
-	err := os.Mkdir(outputDir, 0777)
+	err := os.Mkdir(outputDir, 0755)
 	verifyStep(err)
 
 	fmt.Print("> retrieve img content ... ")
@@ -102,12 +99,10 @@ func fetchSong(song, outputDir string) {
 	defer fmt.Print(".")
 	defer wg.Done()
 
-	req, _ := http.NewRequest("GET", fmt.Sprintf("https://www.googleapis.com/youtube/v3/search?q=%v&maxResults=1&part=snippet&key=AIzaSyCURl1CVR_-gL227h5S8GIhtGXU7kMIFvc", url.QueryEscape(reg.ReplaceAllString(song, ""))), nil)
-	if resp, err := client.Do(req); err == nil {
-		if resp.Body != nil {
-			json.NewDecoder(resp.Body).Decode(&ytResp)
-			resp.Body.Close()
-		}
+	resp, err := http.Get(fmt.Sprintf("https://www.googleapis.com/youtube/v3/search?q=%v&maxResults=1&part=snippet&key=AIzaSyCURl1CVR_-gL227h5S8GIhtGXU7kMIFvc", url.QueryEscape(reg.ReplaceAllString(song, ""))))
+	if err == nil && resp.Body != nil {
+		json.NewDecoder(resp.Body).Decode(&ytResp)
+		resp.Body.Close()
 	}
 
 	if len(ytResp.Items) > 0 {
