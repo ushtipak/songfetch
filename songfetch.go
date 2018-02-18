@@ -19,11 +19,12 @@ import (
 )
 
 var (
-	delimiter = flag.String("delimiter", "-", "char that separates artist / song")
-	img       = flag.String("image", "https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg", "playlist image url")
-	outputDir = ""
-	reg, _    = regexp.Compile("[^a-zA-Z ]+")
-	ytResp    = YtResponse{}
+	delimiter      = flag.String("delimiter", "-", "char that separates artist / song")
+	img            = flag.String("image", "https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg", "playlist image url")
+	discardStrings = flag.String("discard-str", "", "comma separated list of chars to discard during ocr")
+	outputDir      = ""
+	reg, _         = regexp.Compile("[^a-zA-Z ]+")
+	ytResp         = YtResponse{}
 )
 
 type YtResponse struct {
@@ -89,7 +90,7 @@ func getSongsFromImage(outputDir string) {
 	fmt.Print("> processing ")
 	songs := strings.Split(text, "\n")
 	for _, song := range songs {
-		if strings.Contains(song, *delimiter) {
+		if strings.Contains(song, *delimiter) && shouldNotDiscard(song) {
 			wg.Add(1)
 			go fetchSong(song, outputDir)
 		}
@@ -117,6 +118,21 @@ func fetchSong(song, outputDir string) {
 			cmd.CombinedOutput()
 		}
 	}
+}
+
+// shouldNotDiscard checks if discard-str is provided
+// it returns bool if song is valid to process
+func shouldNotDiscard(song string) bool {
+	if *discardStrings == "" {
+		return true
+	}
+	discardString := strings.Split(*discardStrings, ",")
+	for _, stringToDiscard := range discardString {
+		if strings.Contains(song, stringToDiscard) {
+			return false
+		}
+	}
+	return true
 }
 
 func main() {
