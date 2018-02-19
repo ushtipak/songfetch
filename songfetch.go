@@ -15,12 +15,14 @@ import (
 	"encoding/json"
 	"io"
 	"os/exec"
+	"./xperimental"
 )
 
 var (
 	delimiter      = flag.String("delimiter", "-", "char that separates artist / song")
 	discardStrings = flag.String("discard-str", "", "comma separated list of chars to discard during ocr")
 	img            = flag.String("image", "https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg", "playlist image url")
+	multiLine      = flag.String("multi-line", "", "listed fields that represent artist / song")
 	outputDir      = ""
 	reg, _         = regexp.Compile("[^a-zA-Z ]+")
 	wg             = sync.WaitGroup{}
@@ -85,9 +87,16 @@ func getSongsFromImage(outputDir string) {
 	verifyStep(err)
 
 	fmt.Print("> processing ")
-	songs := strings.Split(text, "\n")
-	for _, song := range songs {
-		if strings.Contains(song, *delimiter) && shouldNotDiscard(song) {
+	scannedLines := strings.Split(text, "\n")
+	if *multiLine == "" {
+		for _, song := range scannedLines {
+			if strings.Contains(song, *delimiter) && shouldNotDiscard(song) {
+				wg.Add(1)
+				go fetchSong(song, outputDir)
+			}
+		}
+	} else {
+		for _, song := range xperimental.GetSongsFromMultipleLines(scannedLines, *multiLine) {
 			wg.Add(1)
 			go fetchSong(song, outputDir)
 		}
@@ -95,23 +104,20 @@ func getSongsFromImage(outputDir string) {
 }
 
 // fetchSong retrieves song youtube video id via yt api and downloads it with local youtube-dl cli tool
-func fetchSong(song, outputDir string) {
+func fetchSong(name, outputDir string) {
 	defer fmt.Print(".")
 	defer wg.Done()
 
-	resp, err := http.Get(fmt.Sprintf("https://www.googleapis.com/youtube/v3/search?q=%v&maxResults=1&part=snippet&key=AIzaSyCURl1CVR_-gL227h5S8GIhtGXU7kMIFvc", url.QueryEscape(reg.ReplaceAllString(song, ""))))
+	resp, err := http.Get(fmt.Sprintf("https://www.googleapis.com/youtube/v3/search?q=%v&maxResults=1&part=snippet&key=AIzaSyCURl1CVR_-gL227h5S8GIhtGXU7kMIFvc", url.QueryEscape(reg.ReplaceAllString(name, ""))))
 	if err == nil && resp.Body != nil {
 		json.NewDecoder(resp.Body).Decode(&ytResp)
 		resp.Body.Close()
 	}
 
 	if len(ytResp.Items) > 0 {
-		id := ytResp.Items[0].ID.VideoID
-		if id != "" {
-			cmd := exec.Command("youtube-dl", "-x", "--audio-format", "mp3", fmt.Sprintf("https://www.youtube.com/watch?v=%v", id))
-			cmd.Dir = outputDir
-			cmd.CombinedOutput()
-		}
+		cmd := exec.Command("youtube-dl", "-x", "--audio-format", "mp3", fmt.Sprintf("https://www.youtube.com/watch?v=%v", ytResp.Items[0].ID.VideoID))
+		cmd.Dir = outputDir
+		cmd.CombinedOutput()
 	}
 }
 
