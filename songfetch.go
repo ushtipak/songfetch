@@ -21,7 +21,8 @@ import (
 var (
 	delimiter      = flag.String("delimiter", "-", "char that separates artist / song")
 	discardStrings = flag.String("discard-str", "", "comma separated list of chars to discard during ocr")
-	img            = flag.String("image", "https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg", "playlist image url")
+	ocrOnly		   = flag.Bool("gimme-fuel-gimme-fire-gimme-that-which-i-desire", false, "only perform ocr")
+	img            = flag.String("img", "https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg", "playlist image url")
 	multiLine      = flag.String("multi-line", "", "listed fields that represent artist / song")
 	outputDir      = ""
 	reg, _         = regexp.Compile("[^a-zA-Z ]+")
@@ -86,8 +87,15 @@ func getSongsFromImage(outputDir string) {
 	text, err := client.Text()
 	verifyStep(err)
 
-	fmt.Print("> processing ")
 	scannedLines := strings.Split(text, "\n")
+	if *ocrOnly {
+		for _, line := range scannedLines {
+			fmt.Println(line)
+		}
+		os.Exit(0)
+	}
+
+	fmt.Print("> processing ")
 	if *multiLine == "" {
 		for _, song := range scannedLines {
 			if strings.Contains(song, *delimiter) && shouldNotDiscard(song) {
