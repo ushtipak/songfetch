@@ -21,7 +21,7 @@ import (
 var (
 	delimiter      = flag.String("delimiter", "-", "char that separates artist / song")
 	discardStrings = flag.String("discard-str", "", "comma separated list of chars to discard during ocr")
-	ocrOnly		   = flag.Bool("gimme-fuel-gimme-fire-gimme-that-which-i-desire", false, "only perform ocr")
+	ocrOnly        = flag.Bool("gimme-fuel-gimme-fire-gimme-that-which-i-desire", false, "only perform ocr")
 	img            = flag.String("img", "https://images-cdn.9gag.com/photo/aYwOdrw_700b_v1.jpg", "playlist image url")
 	multiLine      = flag.String("multi-line", "", "listed fields that represent artist / song")
 	outputDir      = ""
